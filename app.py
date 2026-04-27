@@ -96,6 +96,13 @@ with st.sidebar:
 owner = st.session_state.owners[st.session_state.active_owner]
 active_name = st.session_state.active_owner
 
+# Auto-generate schedule on page load if tasks exist but no scheduler cached
+if active_name not in st.session_state.schedulers and owner.get_all_tasks():
+    _s = Scheduler(owner=owner, day_start="08:00")
+    _s.generate_plan()
+    _s.sort_by_time()
+    st.session_state.schedulers[active_name] = _s
+
 st.markdown(f"## 🐾 Lexa & Friends — {owner.name}'s Dashboard")
 
 tab_ai, tab_schedule, tab_progress, tab_tasks, tab_owners = st.tabs([
