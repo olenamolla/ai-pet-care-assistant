@@ -57,7 +57,15 @@ def _dict_to_pet(d: dict) -> Pet:
         favorite_activities=d.get("favorite_activities", []),
         special_instructions=d.get("special_instructions", ""),
     )
-    pet.tasks = [_dict_to_task(t) for t in d.get("tasks", [])]
+    # Deduplicate tasks by name (keep first occurrence) in case of legacy data
+    seen: set[str] = set()
+    unique_tasks = []
+    for t in d.get("tasks", []):
+        key = t["name"].lower()
+        if key not in seen:
+            seen.add(key)
+            unique_tasks.append(t)
+    pet.tasks = [_dict_to_task(t) for t in unique_tasks]
     return pet
 
 
