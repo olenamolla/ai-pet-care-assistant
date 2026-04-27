@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import time
 from datetime import date
 
 from groq import Groq
@@ -8,6 +10,28 @@ from dotenv import load_dotenv
 from pet_planner_system import Owner, Pet, Task, Scheduler, PRIORITY_ORDER
 
 load_dotenv()
+
+# ── Logging setup ─────────────────────────────────────────────────────────────
+# File handler attached once to the "lexa" hierarchy; child loggers inherit it.
+# File: DEBUG (everything). Console: WARNING+ only (avoids Streamlit noise).
+_lexa_logger = logging.getLogger("lexa")
+if not _lexa_logger.handlers:
+    _lexa_logger.setLevel(logging.DEBUG)
+
+    _fh = logging.FileHandler("lexa.log", encoding="utf-8")
+    _fh.setLevel(logging.DEBUG)
+    _fh.setFormatter(logging.Formatter(
+        "%(asctime)s | %(name)-20s | %(levelname)-8s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    _lexa_logger.addHandler(_fh)
+
+    _ch = logging.StreamHandler()
+    _ch.setLevel(logging.WARNING)
+    _ch.setFormatter(logging.Formatter("%(levelname)s [%(name)s] %(message)s"))
+    _lexa_logger.addHandler(_ch)
+
+logger = logging.getLogger("lexa.agent")
 
 # ── Tool schemas (OpenAI / Groq format) ───────────────────────────────────────
 
@@ -164,11 +188,14 @@ def _tool_create_pet(owner: Owner, name: str, species: str, breed: str,
                      age: int, color: str, special_instructions: str = "") -> str:
     for p in owner.pets:
         if p.name.lower() == name.lower():
+            logger.warning("create_pet: duplicate rejected — '%s' already exists for owner '%s'", name, owner.name)
             return f"Pet '{name}' already exists."
     owner.add_pet(Pet(
         name=name, species=species, breed=breed,
         age=int(age), color=color, special_instructions=special_instructions,
     ))
+    logger.info("create_pet: created '%s' (%s, %s, %syo, %s) for owner '%s'",
+                name, species, breed, age, color, owner.name)
     return f"Created pet '{name}' ({species}, {breed}, {age}yo, {color})."
 
 
@@ -178,10 +205,11 @@ def _tool_add_task(owner: Owner, pet_name: str, task_name: str, category: str,
     try:
         pet = _find_pet(owner, pet_name)
     except ValueError as e:
+        logger.warning("add_task: pet lookup failed — %s", e)
         return str(e)
-    # Prevent duplicates — if a task with this name already exists, skip it
     for existing in pet.tasks:
         if existing.name.lower() == task_name.lower():
+            logger.warning("add_task: duplicate rejected — '%s' already exists on '%s'", task_name, pet_name)
             return f"Task '{task_name}' already exists for {pet.name}. Use update_task to change it."
     pet.add_task(Task(
         name=task_name, category=category, duration=int(duration),
@@ -190,6 +218,8 @@ def _tool_add_task(owner: Owner, pet_name: str, task_name: str, category: str,
         preferred_time=preferred_time,
     ))
     rec = f", repeats {recurrence}" if recurrence != "none" else ""
+    logger.info("add_task: added '%s' to '%s' (%s, %smin, %s%s)",
+                task_name, pet_name, category, duration, priority, rec)
     return f"Added '{task_name}' to {pet.name} ({category}, {duration}min, {priority}{rec})."
 
 
@@ -197,14 +227,17 @@ def _tool_list_tasks(owner: Owner, pet_name: str) -> str:
     try:
         pet = _find_pet(owner, pet_name)
     except ValueError as e:
+        logger.warning("list_tasks: pet lookup failed — %s", e)
         return str(e)
     if not pet.tasks:
+        logger.debug("list_tasks: '%s' has no tasks", pet_name)
         return f"{pet.name} has no tasks yet."
     lines = [f"{pet.name}'s tasks ({len(pet.tasks)} total):"]
     for t in pet.tasks:
         due = f" | due {t.due_date}" if t.due_date else ""
         pt = f" | at {t.preferred_time}" if t.preferred_time else ""
         lines.append(f"  - {t.name}: {t.category}, {t.duration}min, {t.priority}, {t.recurrence}{due}{pt}")
+    logger.debug("list_tasks: returning %d tasks for '%s'", len(pet.tasks), pet_name)
     return "\n".join(lines)
 
 
@@ -212,19 +245,25 @@ def _tool_get_pet_info(owner: Owner, pet_name: str) -> str:
     try:
         pet = _find_pet(owner, pet_name)
     except ValueError as e:
+        logger.warning("get_pet_info: pet lookup failed — %s", e)
         return str(e)
-    return f"{pet.summary()} | {len(pet.tasks)} task(s)"
+    result = f"{pet.summary()} | {len(pet.tasks)} task(s)"
+    logger.debug("get_pet_info: '%s' — %s", pet_name, result)
+    return result
 
 
 def _tool_update_task(owner: Owner, pet_name: str, task_name: str, **kwargs) -> str:
     try:
         pet = _find_pet(owner, pet_name)
     except ValueError as e:
+        logger.warning("update_task: pet lookup failed — %s", e)
         return str(e)
     for task in pet.tasks:
         if task.name.lower() == task_name.lower():
             task.update(**kwargs)
+            logger.info("update_task: updated '%s' on '%s' with %s", task_name, pet_name, kwargs)
             return f"Updated '{task_name}' for {pet.name}: {kwargs}"
+    logger.warning("update_task: task '%s' not found on '%s'", task_name, pet_name)
     return f"Task '{task_name}' not found for {pet.name}."
 
 
@@ -232,11 +271,14 @@ def _tool_delete_task(owner: Owner, pet_name: str, task_name: str) -> str:
     try:
         pet = _find_pet(owner, pet_name)
     except ValueError as e:
+        logger.warning("delete_task: pet lookup failed — %s", e)
         return str(e)
     for task in pet.tasks:
         if task.name.lower() == task_name.lower():
             pet.remove_task(task)
+            logger.info("delete_task: removed '%s' from '%s'", task_name, pet_name)
             return f"Deleted task '{task_name}' from {pet.name}."
+    logger.warning("delete_task: task '%s' not found on '%s'", task_name, pet_name)
     return f"Task '{task_name}' not found for {pet.name}."
 
 
@@ -244,7 +286,10 @@ def _tool_generate_care_plan(owner: Owner, pet_name: str, description: str) -> s
     try:
         pet = _find_pet(owner, pet_name)
     except ValueError as e:
+        logger.warning("generate_care_plan: pet lookup failed — %s", e)
         return str(e)
+
+    logger.info("generate_care_plan: calling LLM for '%s' — description: %.120s...", pet_name, description)
 
     api_key = get_api_key()
     client = Groq(api_key=api_key)
@@ -266,6 +311,7 @@ Return ONLY a valid JSON array (no markdown, no explanation). Each object must h
         messages=[{"role": "user", "content": prompt}],
     )
     raw = resp.choices[0].message.content.strip()
+    logger.debug("generate_care_plan: raw LLM response (first 400 chars): %.400s", raw)
 
     if raw.startswith("```"):
         raw = "\n".join(raw.split("\n")[1:])
@@ -275,16 +321,21 @@ Return ONLY a valid JSON array (no markdown, no explanation). Each object must h
 
     try:
         tasks_data = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.error("generate_care_plan: JSON parse failed — %s | raw: %.200s", e, raw)
         return f"Could not parse care plan. Raw: {raw[:300]}"
+
+    logger.info("generate_care_plan: parsed %d tasks for '%s'", len(tasks_data), pet_name)
 
     added = []
     for t in tasks_data:
-        _tool_add_task(owner, pet_name, t["task_name"], t["category"],
-                       t["duration"], t["priority"],
-                       t.get("frequency", 1), t.get("recurrence", "none"))
+        result = _tool_add_task(owner, pet_name, t["task_name"], t["category"],
+                                t["duration"], t["priority"],
+                                t.get("frequency", 1), t.get("recurrence", "none"))
+        logger.debug("generate_care_plan: add_task result — %s", result)
         added.append(t["task_name"])
 
+    logger.info("generate_care_plan: done — %d tasks added to '%s': %s", len(added), pet_name, added)
     return f"Generated and added {len(added)} care tasks for {pet_name}: {', '.join(added)}."
 
 
@@ -294,20 +345,25 @@ def optimize_schedule(owner: Owner, day_start: str = "08:00") -> str:
     Iterates up to 3 rounds. Returns a human-readable summary of changes made.
     Public so app.py can call it directly from the Fix Conflicts button.
     """
+    logger.info("optimize_schedule: starting for owner '%s', day_start=%s", owner.name, day_start)
+
     scheduler = Scheduler(owner=owner, day_start=day_start)
     scheduler.generate_plan()
     scheduler.sort_by_time()
 
     initial_conflicts = scheduler.detect_conflicts()
     if not initial_conflicts:
+        logger.info("optimize_schedule: no conflicts found — schedule already clean")
         return "No conflicts found — schedule is already conflict-free."
 
     initial_count = len(initial_conflicts)
+    logger.info("optimize_schedule: found %d conflict(s) — beginning resolution", initial_count)
     changes: list[str] = []
 
-    for _ in range(3):
+    for round_num in range(3):
         conflicts = scheduler.detect_conflicts()
         if not conflicts:
+            logger.info("optimize_schedule: all conflicts resolved after round %d", round_num)
             break
 
         slots = scheduler.daily_plan
@@ -326,31 +382,31 @@ def optimize_schedule(owner: Owner, day_start: str = "08:00") -> str:
                 if not (start_a < end_b and start_b < end_a):
                     continue
 
-                # Move the lower-priority task; if equal priority, move the later one
                 pri_a = PRIORITY_ORDER.get(slots[i].task.priority, 99)
                 pri_b = PRIORITY_ORDER.get(slots[j].task.priority, 99)
 
                 if pri_a <= pri_b:
                     new_time = scheduler._minutes_to_time(end_a)
                     slots[j].task.preferred_time = new_time
-                    changes.append(
+                    change = (
                         f"Moved '{slots[j].task.name}' → {new_time} "
                         f"(was overlapping '{slots[i].task.name}')"
                     )
                 else:
                     new_time = scheduler._minutes_to_time(end_b)
                     slots[i].task.preferred_time = new_time
-                    changes.append(
+                    change = (
                         f"Moved '{slots[i].task.name}' → {new_time} "
                         f"(was overlapping '{slots[j].task.name}')"
                     )
 
+                changes.append(change)
+                logger.info("optimize_schedule [round %d]: %s", round_num + 1, change)
                 resolved = True
                 break
             if resolved:
                 break
 
-        # Regenerate with updated preferred_times
         scheduler = Scheduler(owner=owner, day_start=day_start)
         scheduler.generate_plan()
         scheduler.sort_by_time()
@@ -363,6 +419,7 @@ def optimize_schedule(owner: Owner, day_start: str = "08:00") -> str:
             + "\n".join(f"  - {c}" for c in changes)
             + "\nSchedule is now conflict-free."
         )
+        logger.info("optimize_schedule: fully resolved — %d adjustment(s) made", len(changes))
     else:
         summary = (
             f"Partially resolved: {initial_count - len(final_conflicts)} fixed, "
@@ -371,6 +428,8 @@ def optimize_schedule(owner: Owner, day_start: str = "08:00") -> str:
             + f"\nStill conflicting: {len(final_conflicts)} pair(s). "
             "Try reducing task durations."
         )
+        logger.warning("optimize_schedule: partially resolved — %d still conflicting", len(final_conflicts))
+
     return summary
 
 
@@ -379,28 +438,33 @@ def _tool_optimize_schedule(owner: Owner, day_start: str = "08:00") -> str:
 
 
 def _execute_tool(name: str, inputs: dict, owner: Owner) -> str:
+    logger.debug("execute_tool: dispatching '%s' with args %s", name, inputs)
     try:
         if name == "create_pet":
-            return _tool_create_pet(owner, **inputs)
+            result = _tool_create_pet(owner, **inputs)
         elif name == "add_task":
-            return _tool_add_task(owner, **inputs)
+            result = _tool_add_task(owner, **inputs)
         elif name == "list_tasks":
-            return _tool_list_tasks(owner, **inputs)
+            result = _tool_list_tasks(owner, **inputs)
         elif name == "get_pet_info":
-            return _tool_get_pet_info(owner, **inputs)
+            result = _tool_get_pet_info(owner, **inputs)
         elif name == "update_task":
             pet_name = inputs.pop("pet_name")
             task_name = inputs.pop("task_name")
-            return _tool_update_task(owner, pet_name, task_name, **inputs)
+            result = _tool_update_task(owner, pet_name, task_name, **inputs)
         elif name == "delete_task":
-            return _tool_delete_task(owner, **inputs)
+            result = _tool_delete_task(owner, **inputs)
         elif name == "generate_care_plan":
-            return _tool_generate_care_plan(owner, **inputs)
+            result = _tool_generate_care_plan(owner, **inputs)
         elif name == "optimize_schedule":
-            return _tool_optimize_schedule(owner, **inputs)
+            result = _tool_optimize_schedule(owner, **inputs)
         else:
-            return f"Unknown tool: {name}"
+            logger.error("execute_tool: unknown tool '%s'", name)
+            result = f"Unknown tool: {name}"
+        logger.debug("execute_tool: '%s' result — %.300s", name, result)
+        return result
     except Exception as e:
+        logger.error("execute_tool: unhandled exception in '%s' — %s", name, e, exc_info=True)
         return f"Tool error in '{name}': {e}"
 
 
@@ -454,6 +518,12 @@ def run_agent(
     Tools mutate owner in place. Self-verifies after every mutation.
     Returns the final natural-language response as a string.
     """
+    t_start = time.perf_counter()
+    logger.info(
+        "run_agent: START — owner='%s', pets=%d, tasks=%d | message: %.120s",
+        owner.name, len(owner.pets), len(owner.get_all_tasks()), user_message,
+    )
+
     client = Groq(api_key=api_key)
 
     messages = [{"role": "system", "content": build_system_prompt(owner)}]
@@ -461,32 +531,60 @@ def run_agent(
         messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": user_message})
 
-    # Tool-use loop — continues until the model stops calling tools
-    for _ in range(10):
+    final_content = "Done — all actions completed successfully."
+
+    for iteration in range(10):
+        logger.debug("run_agent: iteration %d — sending %d messages to LLM", iteration + 1, len(messages))
+
+        t_llm = time.perf_counter()
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
             tools=TOOL_SCHEMAS,
             tool_choice="auto",
         )
+        llm_ms = int((time.perf_counter() - t_llm) * 1000)
 
         assistant_msg = response.choices[0].message
+        finish_reason = response.choices[0].finish_reason
+        tool_call_count = len(assistant_msg.tool_calls) if assistant_msg.tool_calls else 0
+
+        logger.debug(
+            "run_agent: iteration %d — LLM responded in %dms | finish_reason=%s | tool_calls=%d",
+            iteration + 1, llm_ms, finish_reason, tool_call_count,
+        )
+
         messages.append(assistant_msg)
 
         if not assistant_msg.tool_calls:
+            final_content = assistant_msg.content or "Done — all actions completed successfully."
+            logger.info(
+                "run_agent: no more tool calls at iteration %d — final response: %.150s",
+                iteration + 1, final_content,
+            )
             break
 
-        # Execute every tool call and add results back into the conversation
         for tool_call in assistant_msg.tool_calls:
+            tool_name = tool_call.function.name
             args = json.loads(tool_call.function.arguments)
-            result = _execute_tool(tool_call.function.name, args, owner)
+            logger.info("run_agent: tool call — %s(%s)", tool_name, args)
+
+            result = _execute_tool(tool_name, args, owner)
+
+            logger.info("run_agent: tool result [%s] — %.200s", tool_name, result)
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
                 "content": result,
             })
 
-    return assistant_msg.content or "Done — all actions completed successfully."
+    elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+    logger.info(
+        "run_agent: END — owner='%s', total_time=%dms, pets=%d, tasks=%d",
+        owner.name, elapsed_ms, len(owner.pets), len(owner.get_all_tasks()),
+    )
+
+    return final_content
 
 
 def get_api_key() -> str | None:

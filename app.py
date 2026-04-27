@@ -1,7 +1,11 @@
+import logging
+
 import streamlit as st
 from pet_planner_system import Owner, Scheduler
 from persistence import save_owners, load_owners
-from agent import run_agent, get_api_key, optimize_schedule
+from agent import run_agent, get_api_key, optimize_schedule  # also sets up lexa logger
+
+logger = logging.getLogger("lexa.app")
 
 PRIORITY_ICONS = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 CATEGORY_ICONS = {
@@ -14,6 +18,7 @@ st.set_page_config(page_title="Lexa & Friends", page_icon="🐾", layout="wide")
 # ── Session state defaults ────────────────────────────────────────────────────
 if "owners" not in st.session_state:
     st.session_state.owners = load_owners()
+    logger.info("app startup: loaded %d owner(s) from disk", len(st.session_state.owners))
 if "schedulers" not in st.session_state:
     st.session_state.schedulers = {}
 if "active_owner" not in st.session_state:
@@ -40,15 +45,18 @@ with st.sidebar:
         elif owner_name in st.session_state.owners:
             st.session_state.owners[owner_name].available_minutes = int(available_minutes)
             st.session_state.schedulers.pop(owner_name, None)
+            logger.info("app: updated owner '%s' — available_minutes=%d", owner_name, available_minutes)
             st.success(f"Updated {owner_name} to {available_minutes} min/day")
         else:
             st.session_state.owners[owner_name] = Owner(
                 name=owner_name, available_minutes=int(available_minutes),
             )
             st.session_state.chat_history[owner_name] = []
+            logger.info("app: created new owner '%s' — available_minutes=%d", owner_name, available_minutes)
             st.success(f"Welcome, {owner_name}! Use the AI Assistant tab to add your pets.")
         st.session_state.active_owner = owner_name
         save_owners(st.session_state.owners)
+        logger.info("app: saved all owners to disk (%d owner(s))", len(st.session_state.owners))
 
     if not st.session_state.owners:
         st.info("Save an owner to get started.")
@@ -102,6 +110,7 @@ if active_name not in st.session_state.schedulers and owner.get_all_tasks():
     _s.generate_plan()
     _s.sort_by_time()
     st.session_state.schedulers[active_name] = _s
+    logger.info("app: auto-generated schedule for '%s' on page load (%d slots)", active_name, len(_s.daily_plan))
 
 st.markdown(f"## 🐾 Lexa & Friends — {owner.name}'s Dashboard")
 
@@ -157,6 +166,7 @@ with tab_ai:
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
+                logger.info("app: invoking agent for owner='%s' — message: %.120s", active_name, user_input)
                 response = run_agent(
                     user_message=user_input,
                     owner=owner,
@@ -169,6 +179,7 @@ with tab_ai:
         history.append({"role": "assistant", "content": response})
 
         save_owners(st.session_state.owners)
+        logger.info("app: auto-saved after agent action — owner='%s'", active_name)
         # Auto-regenerate schedule so Today's Schedule tab stays current
         if owner.get_all_tasks():
             day_start = st.session_state.get("day_start", "08:00")
@@ -176,6 +187,7 @@ with tab_ai:
             scheduler.generate_plan()
             scheduler.sort_by_time()
             st.session_state.schedulers[active_name] = scheduler
+            logger.info("app: auto-regenerated schedule for '%s' (%d slots)", active_name, len(scheduler.daily_plan))
         else:
             st.session_state.schedulers.pop(active_name, None)
         st.rerun()
@@ -199,6 +211,8 @@ with tab_schedule:
             scheduler.generate_plan()
             scheduler.sort_by_time()
             st.session_state.schedulers[active_name] = scheduler
+            logger.info("app: manually generated schedule for '%s' (%d slots, day_start=%s)",
+                        active_name, len(scheduler.daily_plan), day_start)
 
         scheduler = st.session_state.schedulers.get(active_name)
 
@@ -308,9 +322,12 @@ with tab_progress:
             pet = next(p for p in owner.pets for t in p.tasks if t is slot.task)
             next_task = scheduler.mark_task_complete(pet, slot.task)
             if slot.task.is_fully_done():
+                logger.info("app: task fully completed — '%s' for pet '%s' (owner '%s')",
+                            slot.task.name, pet.name, active_name)
                 st.success(f"'{slot.task.name}' fully completed!")
                 st.balloons()
                 if next_task:
+                    logger.info("app: recurrence task created — '%s' due %s", next_task.name, next_task.due_date)
                     st.info(
                         f"Next {slot.task.recurrence} occurrence of "
                         f"'{next_task.name}' auto-created for **{next_task.due_date}**."
@@ -318,6 +335,8 @@ with tab_progress:
                 save_owners(st.session_state.owners)
                 st.rerun()
             else:
+                logger.info("app: task partial completion — '%s' %d/%d for pet '%s'",
+                            slot.task.name, slot.task.is_completed, slot.task.frequency, pet.name)
                 st.success(
                     f"'{slot.task.name}' — "
                     f"{slot.task.is_completed}/{slot.task.frequency} completions"
