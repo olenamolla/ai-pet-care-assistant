@@ -1,7 +1,7 @@
 import streamlit as st
 from pet_planner_system import Owner, Scheduler
 from persistence import save_owners, load_owners
-from agent import run_agent, get_api_key
+from agent import run_agent, get_api_key, optimize_schedule
 
 PRIORITY_ICONS = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 CATEGORY_ICONS = {
@@ -232,9 +232,17 @@ with tab_schedule:
                 st.subheader("⚠️ Schedule Conflicts")
                 for warning in conflicts:
                     st.error(f"**Time Overlap Detected**\n\n{warning}")
-                    st.caption(
-                        "Tip: Ask the AI Assistant to adjust the duration or time of one of these tasks."
-                    )
+
+                if st.button("🔧 Fix Conflicts Automatically", type="primary", use_container_width=True):
+                    result = optimize_schedule(owner, day_start)
+                    # Rebuild schedule with updated preferred_times
+                    scheduler = Scheduler(owner=owner, day_start=day_start)
+                    scheduler.generate_plan()
+                    scheduler.sort_by_time()
+                    st.session_state.schedulers[active_name] = scheduler
+                    save_owners(st.session_state.owners)
+                    st.success(result)
+                    st.rerun()
             else:
                 st.success("No scheduling conflicts — you're all set!")
 

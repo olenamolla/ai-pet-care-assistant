@@ -5,7 +5,7 @@ from datetime import date
 from groq import Groq
 from dotenv import load_dotenv
 
-from pet_planner_system import Owner, Pet, Task
+from pet_planner_system import Owner, Pet, Task, Scheduler, PRIORITY_ORDER
 
 load_dotenv()
 
@@ -123,6 +123,28 @@ TOOL_SCHEMAS = [
                     "task_name": {"type": "string"},
                 },
                 "required": ["pet_name", "task_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "optimize_schedule",
+            "description": (
+                "Detect and automatically resolve time conflicts in the schedule. "
+                "Higher-priority tasks keep their slots; lower-priority tasks are "
+                "moved to start immediately after the conflicting task ends. "
+                "Call this when the user reports conflicts or asks to fix/optimize the schedule."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "day_start": {
+                        "type": "string",
+                        "description": "Day start time in HH:MM format, default '08:00'",
+                    },
+                },
+                "required": [],
             },
         },
     },
@@ -266,6 +288,96 @@ Return ONLY a valid JSON array (no markdown, no explanation). Each object must h
     return f"Generated and added {len(added)} care tasks for {pet_name}: {', '.join(added)}."
 
 
+def optimize_schedule(owner: Owner, day_start: str = "08:00") -> str:
+    """
+    Resolve schedule conflicts by adjusting preferred_time on lower-priority tasks.
+    Iterates up to 3 rounds. Returns a human-readable summary of changes made.
+    Public so app.py can call it directly from the Fix Conflicts button.
+    """
+    scheduler = Scheduler(owner=owner, day_start=day_start)
+    scheduler.generate_plan()
+    scheduler.sort_by_time()
+
+    initial_conflicts = scheduler.detect_conflicts()
+    if not initial_conflicts:
+        return "No conflicts found — schedule is already conflict-free."
+
+    initial_count = len(initial_conflicts)
+    changes: list[str] = []
+
+    for _ in range(3):
+        conflicts = scheduler.detect_conflicts()
+        if not conflicts:
+            break
+
+        slots = scheduler.daily_plan
+        resolved = False
+
+        for i in range(len(slots)):
+            for j in range(i + 1, len(slots)):
+                if slots[i].task is slots[j].task:
+                    continue
+
+                start_a = scheduler._time_to_minutes(slots[i].start_time)
+                end_a = start_a + slots[i].task.duration
+                start_b = scheduler._time_to_minutes(slots[j].start_time)
+                end_b = start_b + slots[j].task.duration
+
+                if not (start_a < end_b and start_b < end_a):
+                    continue
+
+                # Move the lower-priority task; if equal priority, move the later one
+                pri_a = PRIORITY_ORDER.get(slots[i].task.priority, 99)
+                pri_b = PRIORITY_ORDER.get(slots[j].task.priority, 99)
+
+                if pri_a <= pri_b:
+                    new_time = scheduler._minutes_to_time(end_a)
+                    slots[j].task.preferred_time = new_time
+                    changes.append(
+                        f"Moved '{slots[j].task.name}' → {new_time} "
+                        f"(was overlapping '{slots[i].task.name}')"
+                    )
+                else:
+                    new_time = scheduler._minutes_to_time(end_b)
+                    slots[i].task.preferred_time = new_time
+                    changes.append(
+                        f"Moved '{slots[i].task.name}' → {new_time} "
+                        f"(was overlapping '{slots[j].task.name}')"
+                    )
+
+                resolved = True
+                break
+            if resolved:
+                break
+
+        # Regenerate with updated preferred_times
+        scheduler = Scheduler(owner=owner, day_start=day_start)
+        scheduler.generate_plan()
+        scheduler.sort_by_time()
+
+    final_conflicts = scheduler.detect_conflicts()
+
+    if not final_conflicts:
+        summary = (
+            f"Resolved all {initial_count} conflict(s) with {len(changes)} adjustment(s):\n"
+            + "\n".join(f"  - {c}" for c in changes)
+            + "\nSchedule is now conflict-free."
+        )
+    else:
+        summary = (
+            f"Partially resolved: {initial_count - len(final_conflicts)} fixed, "
+            f"{len(final_conflicts)} remaining.\n"
+            + "\n".join(f"  - {c}" for c in changes)
+            + f"\nStill conflicting: {len(final_conflicts)} pair(s). "
+            "Try reducing task durations."
+        )
+    return summary
+
+
+def _tool_optimize_schedule(owner: Owner, day_start: str = "08:00") -> str:
+    return optimize_schedule(owner, day_start)
+
+
 def _execute_tool(name: str, inputs: dict, owner: Owner) -> str:
     try:
         if name == "create_pet":
@@ -284,6 +396,8 @@ def _execute_tool(name: str, inputs: dict, owner: Owner) -> str:
             return _tool_delete_task(owner, **inputs)
         elif name == "generate_care_plan":
             return _tool_generate_care_plan(owner, **inputs)
+        elif name == "optimize_schedule":
+            return _tool_optimize_schedule(owner, **inputs)
         else:
             return f"Unknown tool: {name}"
     except Exception as e:
