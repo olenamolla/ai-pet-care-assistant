@@ -14,10 +14,12 @@ Owner: Olena Molla (albemoll18@gmail.com)
 ## Current Phase: Working MVP (agent + JSON persistence + Groq)
 
 Done:
-- AI agentic loop with 7 tools, self-verification, self-correction
+- AI agentic loop with 8 tools, self-verification, self-correction
 - JSON persistence (auto-load on startup, auto-save after every action)
 - Full Streamlit UI with AI Assistant as primary tab
 - 36 passing tests across 3 test files
+- Schedule conflict optimizer (agent tool + UI button)
+- Python logging to `lexa.log` — DEBUG/INFO/WARNING/ERROR across agent and app
 
 Deferred: Supabase/database, user authentication, multi-step UI forms.
 
@@ -65,6 +67,7 @@ It calls real Python functions that mutate in-memory application state.
 | `get_pet_info` | Read-only. Used for self-verification after create_pet. |
 | `update_task` | Modifies task fields (duration, priority, recurrence, preferred_time, etc.). |
 | `delete_task` | Removes task from pet. |
+| `optimize_schedule` | Detects time conflicts; moves lower-priority tasks to start after the blocking task ends. Up to 3 rounds. Also callable directly from UI "Fix Conflicts" button. |
 
 ### Self-verification rule (enforced in system prompt)
 After every mutation, model MUST call a read-only tool to verify.
@@ -113,14 +116,16 @@ Module: `persistence.py`
 ai-pet-care-assistant/
   pet_planner_system.py    — unchanged core dataclasses + Scheduler
   persistence.py           — JSON save/load
-  agent.py                 — Groq tool use agentic loop + 7 tool functions
-  app.py                   — Streamlit UI (5 tabs, AI-first)
+  agent.py                 — Groq tool use agentic loop + 8 tool functions + logging setup
+  app.py                   — Streamlit UI (5 tabs, AI-first) + app-level logging
   main.py                  — CLI demo (not yet updated with rich output)
   requirements.txt         — groq, streamlit, rich, python-dotenv, pytest, tabulate
   .env                     — gitignored, contains GROQ_API_KEY
-  .gitignore               — .env, pawpal_data.json, .venv, __pycache__, etc.
+  .gitignore               — .env, pawpal_data.json, lexa.log, .venv, __pycache__, etc.
   CLAUDE.md                — this file
+  README.md                — setup guide, usage, logging instructions
   explanation.md           — original project brief (do not modify)
+  lexa.log                 — runtime log file (gitignored, created automatically on first run)
   tests/
     conftest.py            — sys.path fix so imports work from any directory
     test_pet_planner.py    — 17 original scheduling tests (do not modify)
@@ -150,6 +155,27 @@ GROQ_API_KEY=gsk_...
 
 ---
 
+## Logging
+
+Module: `agent.py` sets up the `lexa` logger hierarchy on first import.
+File: `lexa.log` at project root (gitignored, created automatically).
+
+| Level | Destination | What is captured |
+|---|---|---|
+| DEBUG | File only | Every LLM call, iteration count, tool dispatch, full tool results (truncated 300 chars) |
+| INFO | File only | User message, each tool call + result, pet/task mutations, schedule events, save events |
+| WARNING | File + console | Duplicate rejected, pet/task not found |
+| ERROR | File + console | JSON parse failures, unhandled exceptions with traceback |
+
+To watch in real time while the app runs:
+```bash
+tail -f lexa.log
+```
+
+Logger names: `lexa.agent` (agentic loop + tools), `lexa.app` (Streamlit UI events).
+
+---
+
 ## Key Decisions (do not revisit without user confirmation)
 
 - **Groq over Anthropic/Gemini**: Anthropic had no credits; Gemini hit rate limits; Groq free tier works reliably
@@ -160,14 +186,14 @@ GROQ_API_KEY=gsk_...
 - **Duplicate prevention in tools**: add_task and create_pet both guard against duplicates
 - **Auto-schedule regeneration**: schedule rebuilds after every agent action so Today's Schedule tab is always current
 - **Streamlit kept**: rewrite to React/FastAPI deferred, sufficient for MVP
+- **Python logging over print**: file-based DEBUG log + console WARNING+; file gitignored so it never pollutes the repo
 
 ---
 
 ## Known Gaps / Next Steps
 
-- Platform rename "Lexa & Friends" — partially done (sidebar title), pending in dashboard heading and agent system prompt
-- Schedule conflict resolution — planned: add optimize_schedule agent tool that detects conflicts and adjusts preferred_times
 - UI redesign (multi-step pet onboarding, owner profile screen) — deferred
 - Supabase auth + database — deferred
 - main.py rich output improvements — low priority, not yet done
 - Agent integration tests with mocked Groq — stretch goal
+- Log rotation (currently lexa.log grows unbounded) — low priority for MVP
