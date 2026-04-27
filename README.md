@@ -133,46 +133,11 @@ pytest tests/ -v
 
 ## Sample Interactions
 
-### Example 1 — Adding a pet and generating a care plan
+🎥 **[Watch the full demo on Loom](https://www.loom.com/share/8687a4b84fe84877b42a64aac6379650)**
 
-**User input:**
-> "Add my dog Bella, she's a 3-year-old golden retriever. Generate a full care plan for her."
+🎥 **[CLI demo video and logging file](https://www.loom.com/share/a2e8f39cd02e4f54a07711ca429fd32b)**
 
-**AI response:**
-> I've added Bella to your profile — a 3-year-old golden golden retriever. I then generated a full care plan and added 6 tasks: Morning Walk (walk, 30 min, high, daily), Feeding (feeding, 10 min, high, daily, 2x/day), Vitamins (meds, 5 min, medium, daily), Teeth Brushing (grooming, 5 min, medium, weekly), Enrichment Play (enrichment, 20 min, low, daily), and Evening Walk (walk, 20 min, medium, daily). All tasks have been verified and added to Bella's profile.
 
-> *[Screenshot placeholder — AI Assistant tab showing the conversation and Bella's tasks]*
-
----
-
-### Example 2 — Updating a task
-
-**User input:**
-> "Change Bella's morning walk to 45 minutes and make it start at 7am."
-
-**AI response:**
-> Done — I've updated Bella's Morning Walk: duration changed to 45 minutes and preferred start time set to 07:00. The schedule has been rebuilt automatically.
-
-> *[Screenshot placeholder — Today's Schedule tab showing Morning Walk at 07:00]*
-
----
-
-### Example 3 — Fixing schedule conflicts
-
-**User input:**
-> "There are conflicts in my schedule, can you fix them?"
-
-**AI response:**
-> I ran the schedule optimizer and resolved all 3 conflicts with 3 adjustments:
-> - Moved 'Feeding' → 07:45 (was overlapping 'Morning Walk')
-> - Moved 'Grooming' → 07:45 (was overlapping 'Morning Walk')
-> - Moved 'Grooming' → 07:55 (was overlapping 'Feeding')
->
-> Your schedule is now conflict-free.
-
-> *[Screenshot placeholder — Today's Schedule tab with green "No scheduling conflicts" banner]*
-
----
 
 ## Design Decisions
 
