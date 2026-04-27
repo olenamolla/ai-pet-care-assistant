@@ -96,7 +96,7 @@ with st.sidebar:
 owner = st.session_state.owners[st.session_state.active_owner]
 active_name = st.session_state.active_owner
 
-st.markdown(f"## 🐾 PawPal+ — {owner.name}'s Dashboard")
+st.markdown(f"## 🐾 Lexa & Friends — {owner.name}'s Dashboard")
 
 tab_ai, tab_schedule, tab_progress, tab_tasks, tab_owners = st.tabs([
     "🤖 AI Assistant",
@@ -114,7 +114,7 @@ with tab_ai:
     if not api_key:
         st.error(
             "No API key found. Create a `.env` file in the project folder with:\n\n"
-            "```\nANTHROPIC_API_KEY=sk-ant-...\n```"
+            "```\nGROQ_API_KEY=gsk_...\n```"
         )
         st.stop()
 

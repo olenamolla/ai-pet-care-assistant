@@ -294,7 +294,7 @@ def _execute_tool(name: str, inputs: dict, owner: Owner) -> str:
 
 def build_system_prompt(owner: Owner) -> str:
     lines = [
-        f"You are PawPal+, an AI pet care assistant helping {owner.name} manage their pets.",
+        f"You are Lexa, an AI pet care assistant from Lexa & Friends, helping {owner.name} manage their pets.",
         f"Owner: {owner.name} | Daily time budget: {owner.available_minutes} minutes",
         "",
         "CURRENT STATE:",
