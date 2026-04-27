@@ -35,11 +35,8 @@ This matters because it demonstrates a complete AI engineering stack: prompt des
 
 The system has four layers that data flows through in sequence:
 
-```
-👤 User → 📥 State Retriever → 🧠 AI Agent → 📤 Output
-                                     ↕
-                              🔍 Self-Evaluator
-```
+
+![System Diagram](assets/pet-planner.drawio.png)
 
 **State Retriever** (`build_system_prompt`) — before every LLM call, the current owner, pets, and tasks are read from memory and injected into the system prompt as live context. The model always knows the full current state.
 
@@ -50,6 +47,25 @@ The system has four layers that data flows through in sequence:
 **Output layer** — the final natural-language response is shown in chat, the schedule is auto-rebuilt, data is auto-saved to JSON, and every event is written to `lexa.log`.
 
 Human review happens at the output layer: the user reads the response, checks the schedule tab, and marks tasks complete. Automated tests (36, via pytest) validate the scheduling engine and tool functions independently of the LLM.
+
+---
+
+## AI Tools
+
+The Lexa & Friends agent has 8 tools it can call during a conversation. Each tool is a real Python function that directly mutates application state — no simulation, no mock data.
+
+| Tool | Purpose |
+|---|---|
+| `create_pet` | Adds a new pet to the owner's profile. Rejects duplicates by name. |
+| `add_task` | Adds a single care task to a pet. Rejects duplicates — redirects to `update_task` if the task already exists. |
+| `update_task` | Modifies fields on an existing task (duration, priority, recurrence, preferred start time). |
+| `delete_task` | Removes a task from a pet. |
+| `generate_care_plan` | Makes a second LLM call to generate a full JSON task list from a plain-text pet description, then calls `add_task` for each item. |
+| `optimize_schedule` | Detects time conflicts between tasks; moves lower-priority tasks to start after the blocking task ends. Runs up to 3 resolution rounds. |
+| `list_tasks` | Read-only. Lists all tasks for a pet. Called by the agent after every mutation to verify its own output. |
+| `get_pet_info` | Read-only. Returns a pet's profile summary. Called after `create_pet` to verify the pet was created correctly. |
+
+The two read-only tools (`list_tasks`, `get_pet_info`) are the self-verification mechanism — the agent is required by its system prompt to call one of them after every change and correct itself if the result does not match what it intended.
 
 ---
 
@@ -209,24 +225,6 @@ The AI also does not naturally think about edge cases — for example, it would 
 ### What I learned
 
 Writing tests first (or at least in parallel) forces you to think about edge cases the AI will miss. The 36-test suite caught multiple real bugs. More importantly, it gave confidence when refactoring: when the API provider changed from Anthropic to Gemini to Groq, the test suite confirmed the core logic was still intact without manual re-testing.
-
----
-
-## Reflection
-
-### What this project taught me about AI
-
-Working with an AI agent as the primary interface — rather than just an autocomplete tool — reveals a fundamental shift in how you design software. Instead of writing code that follows a fixed path, you are writing constraints and verification steps around a system that makes its own decisions. The challenge is not getting the AI to produce output; it is getting it to produce the *right* output consistently.
-
-The most useful mental model I developed: **treat the AI like a capable but overconfident junior developer.** It will complete the task, but it will take shortcuts, miss edge cases, and sometimes do something slightly different from what you asked — without flagging it. Your job as the engineer is to design the guardrails: duplicate prevention in tools, mandatory self-verification steps, a cap on loop iterations, error handling that returns human-readable messages back into the conversation, and a logging system that makes behaviour auditable.
-
-### What this project taught me about problem-solving
-
-Switching API providers three times (Anthropic → Gemini → Groq) under time pressure taught a practical lesson about dependencies: always understand what your critical path relies on, and have a fallback. The architecture — thin agent layer over a stable core domain — made the switch easier because the scheduling logic, persistence, and tests had no dependency on the AI provider at all.
-
-Building incrementally and testing at each step also made a significant difference. When the agent started producing duplicate tasks, the problem was immediately isolatable to the tool layer because the scheduler tests were already passing. Without that foundation, debugging would have been much harder.
-
-The project is not finished — user authentication, database storage, and a multi-step onboarding flow are deferred. But it is a working, tested, observable system that demonstrates the full cycle: design, implement, test, debug, and ship.
 
 ---
 
