@@ -7,6 +7,7 @@ from rich.table import Table
 from rich import box
 
 from pet_planner_system import Owner, Pet, Task, Scheduler, ScheduledSlot
+from agent import optimize_schedule  # pure Python — no API call needed
 
 console = Console()
 today = date.today()
@@ -299,6 +300,144 @@ console.print(Rule("[bold]STEP 7 — Scheduler Reasoning Log[/bold]"))
 console.print()
 for line in scheduler.get_reasoning().splitlines():
     console.print(f"  [dim]{line}[/dim]")
+
+console.print()
+
+# ── 8. CONFLICT OPTIMIZER ────────────────────────────────────────────────────
+
+console.print(Rule("[bold]STEP 8 — Conflict Optimizer (auto-resolve overlapping tasks)[/bold]"))
+console.print()
+
+# Build a fresh owner with tasks that have overlapping preferred_times
+opt_owner = Owner(name="Demo", available_minutes=999)
+
+opt_bella = Pet(name="Bella", species="dog", breed="Golden Retriever", age=3, color="golden")
+opt_bella.add_task(Task(
+    name="Morning Walk", category="walk", duration=30, priority="high",
+    preferred_time="08:00",  # 08:00–08:30
+))
+opt_bella.add_task(Task(
+    name="Feeding", category="feeding", duration=10, priority="high",
+    preferred_time="08:10",  # 08:10–08:20  ← overlaps walk
+))
+opt_bella.add_task(Task(
+    name="Vitamins", category="meds", duration=5, priority="medium",
+    preferred_time="09:00",  # 09:00–09:05  ← no overlap
+))
+
+opt_milo = Pet(name="Milo", species="cat", breed="Siamese", age=5, color="cream")
+opt_milo.add_task(Task(
+    name="Grooming", category="grooming", duration=20, priority="medium",
+    preferred_time="08:15",  # 08:15–08:35  ← overlaps walk and feeding
+))
+opt_milo.add_task(Task(
+    name="Dental Treats", category="meds", duration=5, priority="low",
+    preferred_time="09:10",  # 09:10–09:15  ← no overlap
+))
+
+opt_owner.add_pet(opt_bella)
+opt_owner.add_pet(opt_milo)
+
+# Show the conflicted schedule BEFORE optimization
+opt_sched = Scheduler(owner=opt_owner, day_start="08:00")
+opt_sched.generate_plan()
+opt_sched.sort_by_time()
+
+console.print("[bold]Before optimization:[/bold]")
+before_table = Table(box=box.ROUNDED, header_style="bold blue")
+before_table.add_column("Start")
+before_table.add_column("End")
+before_table.add_column("Task")
+before_table.add_column("Pet", style="cyan")
+before_table.add_column("Priority")
+
+for slot in opt_sched.daily_plan:
+    end_min = opt_sched._time_to_minutes(slot.start_time) + slot.task.duration
+    end_str = opt_sched._minutes_to_time(end_min)
+    color   = PRIORITY_COLORS.get(slot.task.priority, "white")
+    pet_name = next(p.name for p in opt_owner.pets if slot.task in p.tasks)
+    before_table.add_row(
+        slot.start_time, end_str, slot.task.name, pet_name,
+        f"[{color}]{slot.task.priority}[/{color}]",
+    )
+
+console.print(before_table)
+
+before_conflicts = opt_sched.detect_conflicts()
+console.print(f"  [red]⚠ {len(before_conflicts)} conflict(s) detected:[/red]")
+for w in before_conflicts:
+    console.print(f"    [red]{w}[/red]")
+
+# Run the optimizer
+console.print()
+console.print("[bold]Running optimize_schedule()...[/bold]")
+result = optimize_schedule(opt_owner, day_start="08:00")
+
+# Show the resolved schedule AFTER optimization
+opt_sched2 = Scheduler(owner=opt_owner, day_start="08:00")
+opt_sched2.generate_plan()
+opt_sched2.sort_by_time()
+
+console.print()
+console.print("[bold]After optimization:[/bold]")
+after_table = Table(box=box.ROUNDED, header_style="bold blue")
+after_table.add_column("Start")
+after_table.add_column("End")
+after_table.add_column("Task")
+after_table.add_column("Pet", style="cyan")
+after_table.add_column("Priority")
+
+for slot in opt_sched2.daily_plan:
+    end_min = opt_sched2._time_to_minutes(slot.start_time) + slot.task.duration
+    end_str = opt_sched2._minutes_to_time(end_min)
+    color   = PRIORITY_COLORS.get(slot.task.priority, "white")
+    pet_name = next(p.name for p in opt_owner.pets if slot.task in p.tasks)
+    after_table.add_row(
+        slot.start_time, end_str, slot.task.name, pet_name,
+        f"[{color}]{slot.task.priority}[/{color}]",
+    )
+
+console.print(after_table)
+
+after_conflicts = opt_sched2.detect_conflicts()
+if after_conflicts:
+    console.print(f"  [yellow]⚠ {len(after_conflicts)} conflict(s) remain.[/yellow]")
+else:
+    console.print("  [green]✓ All conflicts resolved.[/green]")
+
+console.print()
+for line in result.splitlines():
+    console.print(f"  [dim]{line}[/dim]")
+
+# ── 9. AI AGENT (runs via Streamlit) ─────────────────────────────────────────
+
+console.print()
+console.print(Rule("[bold]STEP 9 — AI Agent (Lexa)[/bold]"))
+console.print()
+console.print(Panel(
+    "\n"
+    "  The AI agent is the primary interface of this app and runs inside [bold cyan]Streamlit[/bold cyan].\n"
+    "  It cannot be demonstrated in a standalone script because it requires\n"
+    "  live Groq API calls and Streamlit session state.\n\n"
+    "  [bold]To run the full agent demo:[/bold]\n\n"
+    "    [green]streamlit run app.py[/green]\n\n"
+    "  Then open [cyan]http://localhost:8501[/cyan] and try:\n"
+    "    • [italic]'Add my dog Bella, 3-year-old golden retriever'[/italic]\n"
+    "    • [italic]'Generate a full care plan for Bella'[/italic]\n"
+    "    • [italic]'Fix any schedule conflicts'[/italic]\n\n"
+    "  [bold]What the agent does (agentic loop):[/bold]\n"
+    "    1. Builds a system prompt with live owner + pet + task state\n"
+    "    2. Sends user message + 8 tool schemas to Groq (llama-3.3-70b-versatile)\n"
+    "    3. Executes whichever tools the model calls (mutates Owner/Pet/Task in memory)\n"
+    "    4. Feeds tool results back — model self-verifies with list_tasks / get_pet_info\n"
+    "    5. If mismatch → model corrects itself immediately\n"
+    "    6. Loop repeats (max 10 iterations) until no more tool calls\n"
+    "    7. Returns final natural-language response; app auto-saves + rebuilds schedule\n\n"
+    "  All agent activity is logged to [bold]lexa.log[/bold] (DEBUG level).\n"
+    "  Watch it live:  [green]tail -f lexa.log[/green]\n",
+    title="[bold cyan]Lexa — AI Agent[/bold cyan]",
+    border_style="cyan",
+))
 
 console.print()
 console.print(Panel.fit(
