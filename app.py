@@ -134,14 +134,24 @@ with tab_ai:
         )
         st.stop()
 
-    st.markdown(
-        "Chat with your AI care assistant. Tell it about your pets and it will "
-        "create their profiles, suggest care plans, and manage all tasks for you."
-    )
-    st.caption(
-        "**Try:** *'Add my dog Bella, she's a 3-year-old golden retriever "
-        "who needs daily walks and takes thyroid medication'*"
-    )
+    st.markdown("""
+<div style="background: linear-gradient(135deg, #f0f4ff 0%, #fdf0ff 100%);
+     border-left: 5px solid #7c5cbf;
+     border-radius: 10px;
+     padding: 1.2rem 1.6rem;
+     margin-bottom: 1rem;">
+    <p style="font-size: 1.15rem; font-weight: 600; color: #3d2b6b; margin: 0 0 0.5rem 0;">
+        🐾 Chat with your AI care assistant
+    </p>
+    <p style="font-size: 1rem; color: #555; margin: 0 0 0.75rem 0; line-height: 1.6;">
+        Tell it about your pets and it will create their profiles, suggest care plans,
+        and manage all tasks for you.
+    </p>
+    <p style="font-size: 0.88rem; color: #7c5cbf; margin: 0;">
+        💡 <em>Try: "Add my dog Bella, she's a 3-year-old golden retriever who needs daily walks and takes thyroid medication"</em>
+    </p>
+</div>
+""", unsafe_allow_html=True)
     st.divider()
 
     if active_name not in st.session_state.chat_history:
@@ -228,12 +238,16 @@ with tab_schedule:
 
             st.markdown("---")
 
+            task_to_pet = {id(task): pet for pet, task in owner.get_all_tasks()}
+
             for slot in scheduler.daily_plan:
                 t = slot.task
                 cat_icon = CATEGORY_ICONS.get(t.category, "📌")
                 pri_icon = PRIORITY_ICONS.get(t.priority, "⚪")
                 occ_label = f" (#{slot.occurrence})" if t.frequency > 1 else ""
                 rec_label = f" | Repeats {t.recurrence}" if t.recurrence != "none" else ""
+                pet = task_to_pet.get(id(t))
+                pet_label = f" &nbsp;|&nbsp; 🐾 {pet.name}" if pet else ""
 
                 with st.container():
                     col_time, col_detail = st.columns([1, 4])
@@ -241,8 +255,9 @@ with tab_schedule:
                         st.markdown(f"### {slot.start_time}")
                     with col_detail:
                         st.markdown(
-                            f"**{cat_icon} {t.name}**{occ_label}  \n"
-                            f"{pri_icon} {t.priority} &nbsp;|&nbsp; "
+                            f"**{cat_icon} {t.name}**{occ_label}"
+                            + (f" &nbsp;—&nbsp; 🐾 {pet.name}" if pet else "")
+                            + f"  \n{pri_icon} {t.priority} &nbsp;|&nbsp; "
                             f"{t.duration} min &nbsp;|&nbsp; "
                             f"{t.category}{rec_label}"
                         )

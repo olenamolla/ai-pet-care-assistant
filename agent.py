@@ -291,12 +291,25 @@ def _tool_generate_care_plan(owner: Owner, pet_name: str, description: str) -> s
 
     logger.info("generate_care_plan: calling LLM for '%s' — description: %.120s...", pet_name, description)
 
+    existing_names = [t.name for t in pet.tasks]
+    existing_time = sum(t.total_time() for t in pet.tasks)
+    remaining_budget = owner.available_minutes - existing_time
+
     api_key = get_api_key()
     client = Groq(api_key=api_key)
     prompt = f"""You are a veterinary care expert. Return a JSON array of recommended care tasks.
 
 Pet: {pet.summary()}
 Description: {description}
+
+Owner's daily time budget: {owner.available_minutes} minutes
+Already scheduled: {existing_time} minutes ({', '.join(existing_names) if existing_names else 'none'})
+Remaining budget: {remaining_budget} minutes
+
+IMPORTANT:
+- Total duration * frequency of ALL tasks you generate must not exceed {remaining_budget} minutes.
+- Do NOT include any task whose name matches an existing task: {existing_names if existing_names else '[]'}
+- If remaining budget is 0 or negative, return an empty array [].
 
 Return ONLY a valid JSON array (no markdown, no explanation). Each object must have:
 - "task_name": string
@@ -328,15 +341,22 @@ Return ONLY a valid JSON array (no markdown, no explanation). Each object must h
     logger.info("generate_care_plan: parsed %d tasks for '%s'", len(tasks_data), pet_name)
 
     added = []
+    skipped = []
     for t in tasks_data:
         result = _tool_add_task(owner, pet_name, t["task_name"], t["category"],
                                 t["duration"], t["priority"],
                                 t.get("frequency", 1), t.get("recurrence", "none"))
         logger.debug("generate_care_plan: add_task result — %s", result)
-        added.append(t["task_name"])
+        if result.startswith("Added"):
+            added.append(t["task_name"])
+        else:
+            skipped.append(f"{t['task_name']} ({result})")
 
-    logger.info("generate_care_plan: done — %d tasks added to '%s': %s", len(added), pet_name, added)
-    return f"Generated and added {len(added)} care tasks for {pet_name}: {', '.join(added)}."
+    logger.info("generate_care_plan: done — %d added, %d skipped for '%s'", len(added), len(skipped), pet_name)
+    summary = f"Added {len(added)} care tasks for {pet_name}: {', '.join(added) if added else 'none'}."
+    if skipped:
+        summary += f" Skipped {len(skipped)} (already exist or error): {', '.join(skipped)}."
+    return summary
 
 
 def optimize_schedule(owner: Owner, day_start: str = "08:00") -> str:
@@ -501,6 +521,8 @@ def build_system_prompt(owner: Owner) -> str:
         "6. You may call multiple tools in sequence to complete one request.",
         "7. Never make up data — only report what tool results confirm.",
         "8. Never re-add a pet or task that already exists. Check current state first.",
+        "9. Never call generate_care_plan for a pet that already has tasks. Use update_task, delete_task, or optimize_schedule instead.",
+        f"10. The owner's total daily budget is {owner.available_minutes} minutes. When adding tasks, ensure the total duration * frequency of all tasks stays within this budget.",
     ]
     return "\n".join(lines)
 
