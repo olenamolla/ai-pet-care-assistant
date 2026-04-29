@@ -13,7 +13,7 @@ CATEGORY_ICONS = {
     "enrichment": "🧩", "grooming": "✂️",
 }
 
-st.set_page_config(page_title="Lexa & Friends", page_icon="🐾", layout="wide")
+st.set_page_config(page_title="Lexa & Friends", page_icon="🐈", layout="wide")
 
 # ── Session state defaults ────────────────────────────────────────────────────
 if "owners" not in st.session_state:
@@ -31,8 +31,15 @@ if "chat_history" not in st.session_state:
 # SIDEBAR — Owner setup only (pets + tasks handled by AI)
 # ================================================================
 with st.sidebar:
-    st.title("🐾 Lexa & Friends")
-    st.caption("Your AI pet care planning assistant")
+    st.markdown("""
+<div style="margin-bottom: 0.25rem;">
+    <span style="font-size: 1.6rem; font-weight: 800; color: #3d2b6b; letter-spacing: -0.5px;">
+        Lexa <span style="color: #a07cd4;">&</span> Friends
+    </span><br>
+    <span style="font-size: 1.4rem; letter-spacing: 2px;">🐈 🐈‍⬛ 🐱 🐱</span><br>
+    <span style="font-size: 0.8rem; color: #888;">Your AI pet care planning assistant</span>
+</div>
+""", unsafe_allow_html=True)
 
     st.header("Owner Setup")
     owner_name = st.text_input("Your name", value="Jordan")
@@ -112,7 +119,24 @@ if active_name not in st.session_state.schedulers and owner.get_all_tasks():
     st.session_state.schedulers[active_name] = _s
     logger.info("app: auto-generated schedule for '%s' on page load (%d slots)", active_name, len(_s.daily_plan))
 
-st.markdown(f"## 🐾 Lexa & Friends — {owner.name}'s Dashboard")
+st.markdown(f"""
+<div style="background: linear-gradient(135deg, #f5f0ff 0%, #fff0fb 100%);
+     border-radius: 14px; padding: 1.2rem 1.8rem; margin-bottom: 1rem;
+     display: flex; align-items: center; gap: 1rem;">
+    <div>
+        <div style="font-size: 2rem; font-weight: 900; color: #3d2b6b;
+                    letter-spacing: -1px; line-height: 1.1;">
+            Lexa <span style="color: #a07cd4;">&</span> Friends
+        </div>
+        <div style="font-size: 1.3rem; letter-spacing: 3px; margin: 2px 0 4px 0;">
+            🐈 🐈‍⬛ 🐱 🐱
+        </div>
+        <div style="font-size: 0.9rem; color: #7c5cbf;">
+            {owner.name}'s dashboard
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 tab_ai, tab_schedule, tab_progress, tab_tasks, tab_owners = st.tabs([
     "🤖 AI Assistant",
