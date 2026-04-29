@@ -133,7 +133,7 @@ pytest tests/ -v
 
 ## Sample Interactions
 
-🎥 **[Watch the full demo on Loom](https://www.loom.com/share/8687a4b84fe84877b42a64aac6379650)**
+🎥 **[Watch the full demo on Loom](https://www.loom.com/share/89dbad4b0cea4948bf49a77e58f2e832)**
 
 🎥 **[CLI demo video and logging file](https://www.loom.com/share/a2e8f39cd02e4f54a07711ca429fd32b)**
 
