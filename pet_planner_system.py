@@ -194,25 +194,38 @@ class Scheduler:
         remaining_minutes = self.owner.available_minutes
         current_minutes = self._time_to_minutes(self.day_start)
 
+        day_end_minutes = 22 * 60  # spread multi-occurrence tasks up to 22:00
+
         for pet, task in sorted_tasks:
             time_needed = task.total_time()
 
             if time_needed <= remaining_minutes:
-                for occ in range(1, task.frequency + 1):
-                    if task.preferred_time is not None:
-                        start = task.preferred_time
-                    else:
-                        start = self._minutes_to_time(current_minutes)
-                    self.daily_plan.append(
-                        ScheduledSlot(task=task, start_time=start, occurrence=occ)
-                    )
-                    if task.preferred_time is not None:
-                        current_minutes = max(
-                            current_minutes,
-                            self._time_to_minutes(task.preferred_time) + task.duration,
+                if task.frequency > 1 and task.preferred_time is None:
+                    # Spread occurrences evenly across the remaining day
+                    span = max(day_end_minutes - current_minutes, task.frequency * task.duration)
+                    interval = span // task.frequency
+                    for occ in range(1, task.frequency + 1):
+                        occ_start = current_minutes + (occ - 1) * interval
+                        self.daily_plan.append(
+                            ScheduledSlot(task=task, start_time=self._minutes_to_time(occ_start), occurrence=occ)
                         )
-                    else:
-                        current_minutes += task.duration
+                    current_minutes += task.duration  # only block the first slot
+                else:
+                    for occ in range(1, task.frequency + 1):
+                        if task.preferred_time is not None:
+                            start = task.preferred_time
+                        else:
+                            start = self._minutes_to_time(current_minutes)
+                        self.daily_plan.append(
+                            ScheduledSlot(task=task, start_time=start, occurrence=occ)
+                        )
+                        if task.preferred_time is not None:
+                            current_minutes = max(
+                                current_minutes,
+                                self._time_to_minutes(task.preferred_time) + task.duration,
+                            )
+                        else:
+                            current_minutes += task.duration
                 remaining_minutes -= time_needed
                 self._reasoning.append(
                     f"Scheduled '{task.name}' ({task.priority} priority, "
